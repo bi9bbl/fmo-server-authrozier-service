@@ -216,6 +216,48 @@ Published ports:
 
 The SAS HTTP authentication port is exposed only on the internal Compose network and is not reachable directly from the host. The `sas-data` volume persists SAS configuration and root certificates, `emqx-data` persists EMQX data, `fas-data` persists FAS's SQLite database and configuration, and `suite-bootstrap` holds the internally generated EMQX API Key/Secret. Do not remove these volumes unless you intend to fully reinitialize the deployment.
 
+### Use custom Root CAs with file mounts
+
+The `sas.volumes` section in `docker-compose.yml` contains a commented example. Instead of mounting an entire certificate directory, it mounts each host certificate file read-only directly into the existing SAS directory `/home/app/.sas/roots`. The files must be **FMO V4 Root CA JSON certificates**, not PEM/X.509 TLS certificates.
+
+Edit `docker-compose.yml`, uncomment the example, and add or remove mappings as needed:
+
+```yaml
+services:
+  sas:
+    volumes:
+      - type: bind
+        source: ./root-ca-a.json
+        target: /home/app/.sas/roots/root-ca-a.json
+        read_only: true
+      - type: bind
+        source: ./root-ca-b.json
+        target: /home/app/.sas/roots/root-ca-b.json
+        read_only: true
+```
+
+- Every `source` must be an existing host file before the container is created.
+- Every `target` must be directly under `/home/app/.sas/roots/`, have a unique filename, and end in `.json`.
+- Remove extra entries when only one CA is needed; add more file mappings for additional CAs.
+- The mounts remain read-only. Root CA files should contain public-key information only; never mount a CA private key.
+
+Apply the mappings for the first time:
+
+```bash
+docker compose up -d --force-recreate sas
+docker compose logs sas
+```
+
+#### Update a mapped CA
+
+After overwriting a certificate at the same source path, or after adding, removing, renaming, or changing a `source` / `target`, run:
+
+```bash
+docker compose up -d --force-recreate sas
+```
+
+Use `up --force-recreate`, not only `docker compose restart sas`. Recreating the container establishes fresh single-file bind mounts and lets SAS rescan the Root CAs in a new process. This is especially important when the host certificate is updated with an atomic temporary-file rename, because the old container mount may still reference the previous file.
+
 ### Internal auto-configuration
 
 - **`suite-init`** (one-shot): on first run, generates an internal-only EMQX API Key/Secret and writes it to `emqx_api_key.conf` in the `suite-bootstrap` volume; skips generation if the file already exists, so restart/upgrade never rotates the credential.

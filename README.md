@@ -215,6 +215,48 @@ Copy-Item .env.example .env
 
 SAS 的 HTTP 认证端口仅在 Compose 内部网络开放，不能从宿主机直接访问。`sas-data` 卷持久化 SAS 配置和根证书，`emqx-data` 卷持久化 EMQX 数据，`fas-data` 卷持久化 FAS 的 SQLite 数据库与配置，`suite-bootstrap` 卷保存内部生成的 EMQX API Key / Secret；不要删除这些卷，除非需要完全重新初始化。
 
+### 通过文件映射使用自定义 Root CA
+
+`docker-compose.yml` 的 `sas.volumes` 中包含注释形式的示例。它不会映射整个证书目录，而是把每个宿主机证书文件分别只读映射到 SAS 已有的 `/home/app/.sas/roots` 目录。需要的是 **FMO V4 Root CA JSON 证书**，不是 PEM / X.509 TLS 证书。
+
+编辑 `docker-compose.yml`，取消注释并按需增删映射：
+
+```yaml
+services:
+  sas:
+    volumes:
+      - type: bind
+        source: ./root-ca-a.json
+        target: /home/app/.sas/roots/root-ca-a.json
+        read_only: true
+      - type: bind
+        source: ./root-ca-b.json
+        target: /home/app/.sas/roots/root-ca-b.json
+        read_only: true
+```
+
+- 每个 `source` 必须是启动前已经存在的宿主机文件。
+- 每个 `target` 必须直接位于 `/home/app/.sas/roots/`，使用互不重复且以 `.json` 结尾的文件名。
+- 只需要一个 CA 时删除多余映射；需要更多 CA 时继续添加文件映射。
+- 映射保持只读。Root CA 文件只应包含公钥信息，不要映射任何 CA 私钥。
+
+首次应用映射：
+
+```bash
+docker compose up -d --force-recreate sas
+docker compose logs sas
+```
+
+#### 更新映射的 CA
+
+无论是覆盖同一路径下的证书内容，还是新增、删除、改名或更换 `source` / `target`，更新后都执行：
+
+```bash
+docker compose up -d --force-recreate sas
+```
+
+这里需要 `up --force-recreate`，不能只使用 `docker compose restart sas`：重建容器会重新建立单文件 bind mount，同时让 SAS 在新进程启动时重新扫描 Root CA。使用临时文件加重命名的原子替换方式更新宿主机证书时，这一点尤其重要，因为原容器的文件挂载可能仍指向旧文件。
+
 ### 内部自动配置
 
 - **`suite-init`**（一次性）：首次运行时生成仅供 EMQX ↔ FAS 内部使用的 API Key / Secret，写入 `suite-bootstrap` 卷中的 `emqx_api_key.conf`；若文件已存在则跳过，保证重启 / 升级不会改变凭据。

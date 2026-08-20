@@ -43,6 +43,16 @@ services:
       - "8080"
     volumes:
       - sas-data:/home/app/.sas
+      # Optional custom FMO Root CA JSON files: uncomment and edit one entry per CA.
+      # Each host file must exist before `docker compose up`, and each target must be unique.
+      # - type: bind
+      #   source: ./root-ca-a.json
+      #   target: /home/app/.sas/roots/root-ca-a.json
+      #   read_only: true
+      # - type: bind
+      #   source: ./root-ca-b.json
+      #   target: /home/app/.sas/roots/root-ca-b.json
+      #   read_only: true
     networks:
       - fmo
 
